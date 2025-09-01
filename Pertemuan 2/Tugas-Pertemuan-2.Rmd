@@ -1,0 +1,211 @@
+---
+title: "Tugas praktikum 2"
+author: "Fatih Hizir"
+date: "2025-08-26"
+output: html_document
+---
+
+Library Yang Digunakan
+
+```{r}
+library(forecast)
+library(graphics)
+library(TSA)
+library(TTR)
+library(readxl)
+library(Metrics)
+```
+
+Impor Data
+
+```{r}
+data_tsla <- read_excel("~/Downloads/TSLA_weekly.xlsx", sheet = "Weekly Data")
+
+data_tsla <- data_tsla[, c("Date", "Close")]
+
+head(data_tsla)
+```
+
+Eksplor Data
+
+```{r}
+str(data_tsla)
+dim(data_tsla)
+data_tsla.ts<-ts(data_tsla$Close)
+summary(data_tsla.ts)
+```
+
+Plot data deret waktu
+
+```{r}
+ts.plot(data_tsla.ts, xlab="Time Period ", ylab="Sales", 
+        main = "Time Series Plot")
+points(data_tsla.ts)
+dev.copy(png, "plot_data2.png")
+dev.off()
+```
+
+Pembagian Data
+
+```{r}
+n <- nrow(data_tsla)
+
+n_train <- floor(0.8 * n)
+
+training_ma <- data_tsla[1:n_train, ]
+testing_ma  <- data_tsla[(n_train+1):n, ]
+
+train_ma.ts <- ts(training_ma$Close)
+test_ma.ts  <- ts(testing_ma$Close)
+```
+
+```{r}
+plot(data_tsla.ts, col="red",main="Plot semua data")
+points(data_tsla.ts)
+
+plot(train_ma.ts, col="blue",main="Plot data latih")
+points(train_ma.ts)
+
+plot(test_ma.ts, col="blue",main="Plot data uji")
+points(test_ma.ts)
+```
+
+```{r}
+train_df <- data.frame(
+  Period = 1:length(train_ma.ts),
+  Sales = as.numeric(train_ma.ts),
+  Tipe = "Data Latih"
+)
+
+test_df <- data.frame(
+  Period = (length(train_ma.ts)+1):(length(train_ma.ts)+length(test_ma.ts)),  
+  Sales = as.numeric(test_ma.ts),
+  Tipe = "Data Uji"
+)
+
+plot_df <- rbind(train_df, test_df)
+
+library(ggplot2)
+ggplot(plot_df, aes(x = Period, y = Sales, col = Tipe)) + 
+  geom_line() +
+  labs(x = "Time Period", y = "Close", color = "Penjelasan:") +
+  scale_colour_manual(values = c("Data Latih" = "blue", "Data Uji" = "red")) +
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        plot.caption = element_text(hjust=0.5, size=12))
+
+```
+
+### Forecast 
+
+```{r}
+
+## SMA (Simple Moving Average)
+sma <- SMA(train_ma.ts, n = 5)   # isi n sesuai kebutuhan
+sma_forecast <- rep(tail(na.omit(sma), 1), length(test_ma.ts))
+
+acc_sma <- data.frame(
+  Model = "SMA",
+  SSE = sum((test_ma.ts - sma_forecast)^2),
+  MSE = mean((test_ma.ts - sma_forecast)^2),
+  MAE = mae(test_ma.ts, sma_forecast),
+  RMSE = rmse(test_ma.ts, sma_forecast),
+  MAPE = mape(test_ma.ts, sma_forecast)
+)
+
+## DMA (Double Moving Average)
+dma <- SMA(na.omit(sma), n = 5)  
+dma_forecast <- rep(tail(na.omit(dma), 1), length(test_ma.ts))
+
+acc_dma <- data.frame(
+  Model = "DMA",
+  SSE = sum((test_ma.ts - dma_forecast)^2),
+  MSE = mean((test_ma.ts - dma_forecast)^2),
+  MAE = mae(test_ma.ts, dma_forecast),
+  RMSE = rmse(test_ma.ts, dma_forecast),
+  MAPE = mape(test_ma.ts, dma_forecast)
+)
+
+## SES (Single Exponential Smoothing)
+ses_model <- ses(train_ma.ts, h = length(test_ma.ts))
+ses_forecast <- as.numeric(ses_model$mean)
+
+acc_ses <- data.frame(
+  Model = "SES",
+  SSE = sum((test_ma.ts - ses_forecast)^2),
+  MSE = mean((test_ma.ts - ses_forecast)^2),
+  MAE = mae(test_ma.ts, ses_forecast),
+  RMSE = rmse(test_ma.ts, ses_forecast),
+  MAPE = mape(test_ma.ts, ses_forecast)
+)
+
+## DES (Double Exponential Smoothing / Holt’s Linear)
+des_model <- holt(train_ma.ts, h = length(test_ma.ts))
+des_forecast <- as.numeric(des_model$mean)
+
+acc_des <- data.frame(
+  Model = "DES",
+  SSE = sum((test_ma.ts - des_forecast)^2),
+  MSE = mean((test_ma.ts - des_forecast)^2),
+  MAE = mae(test_ma.ts, des_forecast),
+  RMSE = rmse(test_ma.ts, des_forecast),
+  MAPE = mape(test_ma.ts, des_forecast)
+)
+
+## Holt-Winters
+hw_model <- HoltWinters(train_ma.ts, beta = TRUE, gamma = FALSE)
+hw_forecast <- forecast(hw_model, h = length(test_ma.ts))
+hw_forecast_values <- as.numeric(hw_forecast$mean)
+
+acc_hw <- data.frame(
+  Model = "Holt-Winters",
+  SSE = sum((test_ma.ts - hw_forecast_values)^2),
+  MSE = mean((test_ma.ts - hw_forecast_values)^2),
+  MAE = mae(test_ma.ts, hw_forecast_values),
+  RMSE = rmse(test_ma.ts, hw_forecast_values),
+  MAPE = mape(test_ma.ts, hw_forecast_values)
+)
+
+# -----------------------------
+# Gabungkan semua hasil
+# -----------------------------
+accuracy_table <- rbind(acc_sma, acc_dma, acc_ses, acc_des, acc_hw)
+
+# Tentukan model terbaik berdasarkan RMSE (atau metrik lain)
+best_model <- accuracy_table[which.min(accuracy_table$RMSE), ]
+
+print(accuracy_table)
+print(best_model)
+
+```
+
+Visualisasi Perbandingan
+
+```{r}
+plot_df <- data.frame(
+  Period = 1:length(test_ma.ts),
+  Actual = as.numeric(test_ma.ts),
+  SMA = sma_forecast,
+  DMA = dma_forecast,
+  SES = ses_forecast,
+  DES = des_forecast,
+  HoltWinters = hw_forecast_values
+)
+
+library(reshape2)
+plot_melt <- melt(plot_df, id.vars = "Period")
+
+library(ggplot2)
+ggplot(plot_melt, aes(x = Period, y = value, color = variable)) +
+  geom_line(size = 1) +
+  labs(title = "Perbandingan Forecast vs Aktual (TSLA Weekly)",
+       x = "Periode (Test Data)", y = "Harga Penutupan (Close)") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+```
+
+Kesimpulan:\
+Berdasarkan hasil analisis peramalan terhadap data harga penutupan mingguan Tesla (TSLA), telah dilakukan perbandingan beberapa metode yaitu Single Moving Average (SMA), Double Moving Average (DMA), Single Exponential Smoothing (SES), Double Exponential Smoothing (DES), dan Holt-Winters. Evaluasi model dilakukan menggunakan metrik akurasi seperti SSE, MSE, MAE, RMSE, dan MAPE. Hasil perhitungan menunjukkan bahwa metode DMA memiliki nilai RMSE dan MAPE paling rendah dibandingkan metode lain, yaitu RMSE sebesar 47,99 dan MAPE sebesar 15,81%. Hal ini mengindikasikan bahwa metode DMA menghasilkan kesalahan prediksi paling kecil serta lebih stabil dalam menggambarkan pola pergerakan harga saham TSLA.
+
+Dengan demikian, dapat disimpulkan bahwa metode **Double Moving Average (DMA)** merupakan model terbaik untuk meramalkan harga penutupan mingguan Tesla pada data yang digunakan. Keunggulan DMA dibandingkan metode lain adalah kemampuannya yang lebih baik dalam meredam fluktuasi jangka pendek sekaligus tetap menangkap kecenderungan umum pergerakan harga. Sementara itu, metode berbasis tren seperti DES dan Holt-Winters tidak memberikan hasil yang optimal karena data TSLA tidak menunjukkan pola tren yang konsisten. Oleh karena itu, DMA lebih sesuai digunakan dalam konteks peramalan jangka pendek pada data ini.
