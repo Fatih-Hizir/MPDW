@@ -1,0 +1,133 @@
+---
+title: "Tugas IPM Pertemuan 2"
+author: "Fatih Avicenna Hizir"
+date: "2025-09-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(TTR)
+library(forecast)
+library(lmtest) 
+library(orcutt) 
+library(HoRM)
+```
+
+## Data IPM Aceh
+
+```{r}
+Tahun <- c(2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024)
+IPM <- c(67.09,67.45,67.81,68.3,68.81,69.45,70,70.6,71.19,71.9,71.99,72.18,72.8,74.7,75.36)
+dtAceh <- data.frame(tahun = Tahun,ipm = IPM)
+head(dtAceh)
+```
+
+## Ekplorasi Data Time Series
+
+```{r}
+data.ts <- ts(IPM, start=2010, frequency=1)
+
+plot(data.ts, main="Time Series IPM", ylab="IPM", xlab="Tahun")
+
+par(mfrow=c(1,2))
+acf(data.ts, main="ACF Data IPM")
+pacf(data.ts, main="PACF Data IPM")
+```
+
+Terlihat ada Autokorelasi Positif pada Lag-1\
+
+## Regresi Linear IPM\~Tahun
+
+```{r}
+model_awal <- lm(ipm ~ tahun, data=dtAceh)
+summary(model_awal)
+
+res <- residuals(model_awal)
+
+# Uji autokorelasi pada residual
+dwtest(model_awal)
+
+par(mfrow=c(1,2))
+acf(res, main="ACF Sisaan")
+pacf(res, main="PACF Sisaan")
+```
+
+Nilai Durbin-Watson \< 2 -\> ada Autokorelasi Positif pada Residual -\> Asumsi OLS dilanggar\
+\
+\
+
+## Penanganan Autokorelasi dengan Cochrane-Orcutt
+
+```{r}
+model_CO <- cochrane.orcutt(model_awal)
+summary(model_CO)
+rho_CO <- model_CO$rho
+rho_CO
+```
+
+## Penanganan Autokorelasi dengan Hildreth-Lu
+
+```{r}
+# fungsi Hildreth–Lu
+hildreth.lu.func <- function(r, model){
+  x <- model.matrix(model)[,-1]
+  y <- model.response(model.frame(model))
+  n <- length(y)
+  t <- 2:n
+  y <- y[t] - r*y[t-1]
+  x <- x[t] - r*x[t-1]
+  return(lm(y ~ x))
+}
+
+# grid search rho
+r <- seq(0.1,0.9,by=0.1)
+tab <- data.frame(rho=r, SSE=sapply(r, function(rr) deviance(hildreth.lu.func(rr, model_awal))))
+tab
+
+# cari rho optimum lebih detail
+rOpt <- seq(0.2,0.5,by=0.001)
+tabOpt <- data.frame(rho=rOpt, SSE=sapply(rOpt, function(rr) deviance(hildreth.lu.func(rr, model_awal))))
+rho_HL <- tabOpt$rho[which.min(tabOpt$SSE)]
+rho_HL
+
+# model akhir HL
+model_HL <- hildreth.lu.func(rho_HL, model_awal)
+summary(model_HL)
+```
+
+## Perbandingan Model
+
+```{r}
+# SSE & MSE
+sse_awal <- sum(residuals(model_awal)^2)
+sse_CO <- sum(residuals(model_CO)^2)
+sse_HL <- sum(residuals(model_HL)^2)
+
+mse_awal <- mean(residuals(model_awal)^2)
+mse_CO <- mean(residuals(model_CO)^2)
+mse_HL <- mean(residuals(model_HL)^2)
+
+akurasi <- matrix(c(sse_awal, sse_CO, sse_HL,
+                    mse_awal, mse_CO, mse_HL),
+                  nrow=2, byrow=TRUE)
+colnames(akurasi) <- c("Model Awal", "Cochrane-Orcutt", "Hildreth-Lu")
+row.names(akurasi) <- c("SSE","MSE")
+akurasi
+```
+
+Kesimpulan :\
+- **Model regresi awal** IPM \~ Tahun menghasilkan nilai Durbin–Watson \< 2, sehingga terdapat indikasi kuat autokorelasi positif pada residual. Dengan demikian, asumsi independensi error dalam regresi klasik dilanggar, meskipun nilai SSE dan MSE relatif kecil (SSE = 2.3685; MSE = 0.1579).
+
+\- **Metode Cochrane–Orcutt** diterapkan untuk mengoreksi autokorelasi. Namun hasil estimasi menunjukkan bahwa metode ini tidak mampu memperbaiki model secara optimal. Nilai SSE dan MSE justru meningkat (SSE = 3.7246; MSE = 0.2483), yang menandakan efisiensi model menurun dibandingkan model awal. Hal ini dapat terjadi karena jumlah observasi relatif sedikit (n = 15), sehingga prosedur iteratif Cochrane–Orcutt kurang stabil.
+
+\- **Metode Hildreth–Lu** memberikan hasil yang jauh lebih baik. Estimasi rho optimum melalui pencarian grid menghasilkan model dengan SSE = 1.6635 dan MSE = 0.1188, yang merupakan nilai terkecil di antara ketiga model. Artinya, model Hildreth–Lu lebih efisien dalam menangani masalah autokorelasi pada data IPM.\
+\
+-\> Dengan demikian, dapat disimpulkan bahwa **model terbaik untuk data IPM 2010–2024 adalah model regresi hasil koreksi Hildreth–Lu**, karena mampu menghilangkan autokorelasi dan sekaligus memberikan kriteria kesalahan (SSE dan MSE) yang lebih rendah dibandingkan model awal maupun model hasil Cochrane–Orcutt.\
+\
+**Daftar Pustaka\
+-\> Badan Pusat Statistik Provinsi Aceh. 2025.** *Indeks Pembangunan Manusia (IPM) Provinsi Aceh Menurut Kabupaten/Kota*. Banda Aceh: BPS Aceh. Tersedia pada: <https://data.acehprov.go.id/id/dataset/indeks-pembangunan-manusia-ipm-provinsi-aceh-menurut-kabupaten-kota>
