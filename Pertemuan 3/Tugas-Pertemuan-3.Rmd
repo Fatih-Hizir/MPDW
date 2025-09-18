@@ -1,1 +1,270 @@
+---
+title: "Tugas-Pertemuan-3"
+author: "Fatih Avicenna Hizir"
+date: "2025-09-18"
+output: html_document
+---
 
+## Library yang digunakan
+
+```{r}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(dLagM)
+library(car)
+library(MLmetrics)
+library(ggplot2)
+library(nardl)
+library(dynlm)
+library(zoo)
+library(lmtest)
+```
+
+## Impor Data
+
+```{r}
+X_NAME <- "O3"   
+dataAir <- read.csv("~/Downloads/NewDelhi_Air_quality.csv")
+dataAir
+```
+
+## Pembagian Data
+
+```{r}
+train<-dataAir[1:54,]
+test<-dataAir[55:72,]
+```
+
+```{r}
+train.ts<-ts(train)
+test.ts<-ts(test)
+data.ts<-ts(dataAir)
+```
+
+## Model Koyck
+
+```{r}
+model.koyck <- koyckDlm(x = train$CO, y = train$AQI)
+summary(model.koyck)
+```
+
+```{r}
+AIC(model.koyck)
+BIC(model.koyck)
+```
+
+```{r}
+fore.koyck <- forecast(model = model.koyck, x=test$CO, h=5)
+fore.koyck
+```
+
+```{r}
+y_pred <- as.numeric(fore.koyck$forecasts)
+y_true <- as.numeric(test$AQI)
+
+mape.koyck <- MLmetrics::MAPE(y_pred, y_true)
+mape.koyck
+GoF(model.koyck)
+```
+
+## Regression with Distributed Lag
+
+```{r}
+model.dlm <- dlm(x = train$CO,y = train$AQI , q = 1)
+summary(model.dlm)
+```
+
+```{r}
+AIC(model.dlm)
+BIC(model.dlm)
+```
+
+```{r}
+fore.dlm <- forecast(model = model.dlm, x=test$CO, h=5)
+fore.dlm
+```
+
+```{r}
+y_pred <- as.numeric(fore.dlm$forecasts)
+y_true <- as.numeric(test$AQI)
+
+mape.dlm <- MLmetrics::MAPE(y_pred, y_true)
+mape.dlm
+```
+
+```{r}
+GoF(model.dlm)
+```
+
+```{r}
+finiteDLMauto(formula = AQI ~ CO,
+              data = data.frame(train), q.min = 1, q.max = 10,
+              model.type = "dlm", error.type = "AIC", trace = TRUE)
+```
+
+```{r}
+model.dlm2 <- dlm(x = train$CO,y = train$AQI , q = 6)
+summary(model.dlm2)
+```
+
+```{r}
+AIC(model.dlm2)
+BIC(model.dlm2)
+#peramalan dan akurasi
+fore.dlm2 <- forecast(model = model.dlm2, x=test$CO, h=5)
+
+y_pred <- as.numeric(fore.dlm2$forecasts)
+y_true <- as.numeric(test$AQI)
+
+# Urutan MLmetrics::MAPE adalah (y_pred, y_true)
+mape.dlm2 <- MLmetrics::MAPE(y_pred, y_true)
+mape.dlm2
+GoF(model.dlm2)
+```
+
+## Model Autoregressive
+
+```{r}
+model.ardl <- ardlDlm(x = train$CO, y = train$AQI, p = 1 , q = 1)
+summary(model.ardl)
+AIC(model.ardl)
+BIC(model.ardl)
+```
+
+```{r}
+model.ardl <- ardlDlm(formula = AQI ~ CO, 
+                         data = train,p = 1 , q = 1)
+summary(model.ardl)
+AIC(model.ardl)
+BIC(model.ardl)
+```
+
+```{r}
+fore.ardl <- forecast(model = model.ardl, x=test$CO, h=5)
+fore.ardl
+
+y_pred <- as.numeric(fore.ardl$forecasts)
+y_true <- as.numeric(test$AQI[seq_along(y_pred)])  
+
+stopifnot(length(y_pred) == length(y_true))
+
+mape.ardl <- MLmetrics::MAPE(y_pred, y_true)
+mape.ardl
+GoF(model.ardl)
+```
+
+```{r}
+model.ardl.opt <- ardlBoundOrders(data = data.frame(dataAir), ic = "AIC", 
+                                  formula = AQI ~ CO )
+model.ardl.opt
+```
+
+```{r}
+min_p=c()
+for(i in 1:5){
+  min_p[i]=min(model.ardl.opt$Stat.table[[i]])
+}
+q_opt=which(min_p==min(min_p, na.rm = TRUE))
+p_opt=which(model.ardl.opt$Stat.table[[q_opt]] == 
+              min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+data.frame("q_optimum" = q_opt, "p_optimum" = p_opt, 
+           "AIC"=model.ardl.opt$min.Stat)
+```
+
+## Perbandingan Model
+
+```{r}
+H <- nrow(test)
+
+fore.koyck <- dLagM::forecast(model = model.koyck, x = test$CO, h = H)
+fore.dlm   <- dLagM::forecast(model = model.dlm,   x = test$CO, h = H)
+fore.dlm2  <- dLagM::forecast(model = model.dlm2,  x = test$CO, h = H)
+fore.ardl  <- dLagM::forecast(model = model.ardl,  x = test$CO, h = H)
+
+y_act  <- as.numeric(test$AQI)
+y_koy  <- as.numeric(fore.koyck$forecasts)
+y_dlm1 <- as.numeric(fore.dlm$forecasts)
+y_dlm2 <- as.numeric(fore.dlm2$forecasts)
+y_ardl <- as.numeric(fore.ardl$forecasts)
+
+stopifnot(
+  length(y_act)  == H,
+  length(y_koy)  == H,
+  length(y_dlm1) == H,
+  length(y_dlm2) == H,
+  length(y_ardl) == H
+)
+
+x <- seq_len(H)
+ylim_all <- range(c(y_act, y_koy, y_dlm1, y_dlm2, y_ardl), na.rm = TRUE)
+```
+
+## Plot
+
+```{r}
+y_act  <- as.numeric(test$AQI)
+y_koy  <- as.numeric(fore.koyck$forecasts)
+y_dlm1 <- as.numeric(fore.dlm$forecasts)
+y_dlm2 <- as.numeric(fore.dlm2$forecasts)
+y_ardl <- as.numeric(fore.ardl$forecasts)
+
+ylim_all <- range(c(y_act, y_koy, y_dlm1, y_dlm2, y_ardl), na.rm = TRUE)
+
+par(mfrow = c(1,1))
+
+x <- seq_len(nrow(test))
+
+plot(x, y_act, type = "b", col = "black", ylim = ylim_all,
+     xlab = "CO", ylab = "AQI")
+
+points(x, y_koy,  col = "red");    lines(x, y_koy,  col = "red")
+points(x, y_dlm1, col = "blue");   lines(x, y_dlm1, col = "blue")
+points(x, y_dlm2, col = "orange"); lines(x, y_dlm2, col = "orange")
+points(x, y_ardl, col = "green");  lines(x, y_ardl, col = "green")
+
+legend("topleft",
+       c("Aktual","Koyck","DLM 1","DLM 2","Autoregressive"),
+       lty = 1, col = c("black","red","blue","orange","green"), cex = 0.8)
+
+```
+
+## Model Terbaik
+
+```{r}
+# pastikan 'perf' ada; kalau belum, bangun dari ramalan yang sudah ada
+if (!exists("perf")) {
+  y_true <- as.numeric(test$AQI)
+  fk <- as.numeric(fore.koyck$forecasts)
+  fd1 <- as.numeric(fore.dlm$forecasts)
+  fd2 <- as.numeric(fore.dlm2$forecasts)
+  fa  <- as.numeric(fore.ardl$forecasts)
+
+  H <- length(y_true)
+  stopifnot(length(fk)==H, length(fd1)==H, length(fd2)==H, length(fa)==H)
+
+  rmse <- function(p,y) sqrt(mean((y-p)^2))
+  mae  <- function(p,y) mean(abs(y-p))
+  mape <- function(p,y) mean(abs((y-p)/pmax(abs(y),1e-8)))*100
+  r2   <- function(p,y) 1 - sum((y-p)^2)/sum((y-mean(y))^2)
+
+  perf <- data.frame(
+    Model = c("Koyck","DLM (q=1)","DLM (q=6)","Autoregressive"),
+    RMSE  = c(rmse(fk,y_true), rmse(fd1,y_true), rmse(fd2,y_true), rmse(fa,y_true)),
+    MAE   = c(mae (fk,y_true), mae (fd1,y_true), mae (fd2,y_true), mae (fa,y_true)),
+    MAPE  = c(mape(fk,y_true), mape(fd1,y_true), mape(fd2,y_true), mape(fa,y_true)),
+    R2    = c(r2  (fk,y_true), r2  (fd1,y_true), r2  (fd2,y_true), r2  (fa,y_true))
+  )
+}
+
+# jaga-jaga: pastikan RMSE numeric & finite
+perf$RMSE <- as.numeric(perf$RMSE)
+stopifnot(all(is.finite(perf$RMSE)))
+
+best_model <- perf$Model[which.min(perf$RMSE)]
+best_model
+```
+
+## Kesimpulan
+
+Data dibagi **train (1–54)** dan **test (55–72)** dengan **AQI** sebagai **Y** dan **CO** sebagai **X**. Empat model diuji yaitu **Koyck**, **DLM (q=1)**, **DLM (q=6)**, dan **ARDL (p=1, q=1)** serta dievaluasi pada data uji. Hasil verifikasi metrik menunjukkan **DLM (q=6)** adalah yang terbaik dengan **RMSE = 2,47**, **MAE = 2,14**, **MAPE = 10,08%**, dan **R² = 0,257**, mengungguli DLM (q=1), ARDL, dan Koyck. Ini berarti respons AQI terhadap CO pada data ini **lebih baik ditangkap oleh distributed lag hingga lag ke-6**, sementara Koyck cenderung **overestimate** dan ARDL masih kalah akurat. Nilai R² yang masih terbatas menandakan ada variabilitas AQI yang belum terjelaskan hanya dengan CO. Untuk peningkatan, dapat dipertimbangkan mencoba polutan lain, menambah orde lag secara sistematis, atau memakai model multivariat (lebih dari satu polutan). Secara keseluruhan, **model final yang direkomendasikan adalah DLM (q = 6)** beserta metrik akurasinya di atas.
