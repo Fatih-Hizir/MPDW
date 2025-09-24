@@ -1,0 +1,336 @@
+---
+title: "Tugas-Pertemuan-4"
+author: "Fatih Avicenna Hizir"
+date: "2025-09-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(TSA)    
+safe_acf <- function(x, L){
+  a <- acf(x, lag.max = L, plot = FALSE, demean = TRUE)
+  v <- as.numeric(a$acf)
+  if (length(v) >  L+1) v <- v[1:(L+1)]
+  if (length(v) <  L+1) v <- c(v, rep(NA, L+1 - length(v)))
+  v
+}
+```
+
+## Proses MA(2)
+
+#### Bangkitkan model MA(2) dengan 𝜃1 = 0.4 dan 𝜃2 = 0.6 sebanyak 300 data (Manual dan dengan arima.sim)
+
+```{r}
+set.seed(123)
+n <- 300
+
+# Manual: Y_t = W_t + 0.4 W_{t-1} + 0.6 W_{t-2}
+wn <- rnorm(n + 2)
+y_ma2_manual <- wn[3:(n+2)] + 0.4*wn[2:(n+1)] + 0.6*wn[1:n]
+y_ma2_manual <- ts(y_ma2_manual)
+
+# arima.sim 
+y_ma2_sim <- arima.sim(n = n, model = list(ma = c(0.4, 0.6)))
+```
+
+#### Buat plot time series, plot ACF, plot PACF dan plot EACF. Idenifikasi apakah data tersebut stasioner
+
+```{r}
+ts.plot(y_ma2_sim, main = "MA(2) arima.sim - Time Series", xlab = "t", ylab = "Y_t")
+acf(y_ma2_sim,  main = "MA(2) arima.sim - ACF")
+pacf(y_ma2_sim, main = "MA(2) arima.sim - PACF")
+eacf(y_ma2_sim)  
+```
+
+#### Buat scatterplot antara 𝑌𝑡 dengan 𝑌𝑡−1, 𝑌𝑡 dengan 𝑌𝑡−2 serta 𝑌𝑡 dengan 𝑌𝑡−3
+
+```{r}
+par(mfrow = c(1,3), mar = c(4,4,2,1))
+plot(y_ma2_sim[2:n], y_ma2_sim[1:(n-1)],  xlab = expression(Y[t-1]), ylab = expression(Y[t]), main = "lag-1")
+plot(y_ma2_sim[3:n], y_ma2_sim[1:(n-2)],  xlab = expression(Y[t-2]), ylab = expression(Y[t]), main = "lag-2")
+plot(y_ma2_sim[4:n], y_ma2_sim[1:(n-3)],  xlab = expression(Y[t-3]), ylab = expression(Y[t]), main = "lag-3")
+par(mfrow = c(1,1))
+```
+
+#### Hitung autokorelasi masing masing baik dari data bangkitan maupun secara teoritis
+
+```{r}
+theta1 <- 0.4
+theta2 <- 0.6
+L <- 20  
+
+# Teoritis MA(2)
+gamma0 <- 1 + theta1^2 + theta2^2
+rho0 <- 1
+rho1 <- theta1 * (1 + theta2) / gamma0
+rho2 <- theta2 / gamma0
+acf_theory <- c(rho0, rho1, rho2, rep(0, L - 2))
+
+# ACF sampel
+acf_manual <- safe_acf(y_ma2_manual, L)
+acf_sim    <- safe_acf(y_ma2_sim,    L)
+
+lag <- 0:L
+tab <- data.frame(
+  lag = lag,
+  theoretical   = round(acf_theory, 3),
+  sample_manual = round(acf_manual, 3),
+  sample_sim    = round(acf_sim, 3)
+)
+kable(tab, caption = "Perbandingan ACF Teoritis vs Sampel MA(2)")
+```
+
+**ACF teoritis MA(2)** (θ₁ = 0.4, θ₂ = 0.6):
+
+ρ(0) = 1
+
+ρ(1) = 0.421
+
+ρ(2) = 0.395
+
+ρ(k) = 0 untuk k \> 2 (**cut-off di lag 2**).
+
+**ACF sampel** (baik dari y_manual maupun y_sim) **mendekati** nilai teoritis:
+
+-   Nilai besar pada lag 0–2, lalu mendekati **0** untuk lag \> 2 (perbedaan kecil karena variasi sampel, n = 300).
+
+-   Sesuai sifat **MA(q)**, proses ini **stasioner**; pola ACF yang terpotong pada orde q terlihat konsisten dengan teori.
+
+## Proses AR(2)
+
+#### Bangkitkan model AR(2) dengan 𝜙1 = 0.5 dan 𝜙2 = 0.2 sebanyak 300 data (Manual dan dengan arima.sim)
+
+```{r}
+set.seed(123)
+phi1 <- 0.5
+phi2 <- 0.2
+n <- 300
+
+# Manual
+# White Noise
+wn <- rnorm(n, mean = 0, sd = 1)
+
+y_manual <- numeric(n)
+
+y_manual[1:2] <- wn[1:2]
+
+# proses AR(2): Yt = phi1*Yt-1 + phi2*Yt-2 + et
+for(t in 3:n){
+  y_manual[t] <- phi1*y_manual[t-1] + phi2*y_manual[t-2] + wn[t]
+}
+
+#arima.sim
+y_sim <- arima.sim(n = n, model = list(ar = c(phi1, phi2)), sd = 1)
+```
+
+#### Buat plot time series, plot ACF, plot PACF dan plot EACF. Idenifikasi apakah data tersebut stasioner
+
+```{r}
+y_ts <- ts(y_manual)
+plot.ts(y_ts, main = "Plot Time Series AR(2): phi1=0.5, phi2=0.2", 
+        ylab = "Yt", xlab = "t")
+acf(y_ts, main = "ACF AR(2)")
+pacf(y_ts, main = "PACF AR(2)")
+eacf(y_ts)
+```
+
+#### Buat scatterplot antara 𝑌𝑡 dengan 𝑌𝑡−1, 𝑌𝑡 dengan 𝑌𝑡−2 serta 𝑌𝑡 dengan 𝑌𝑡−3
+
+```{r}
+y <- as.numeric(y_manual)
+par(mfrow = c(1,3), mar = c(4,4,2,1))
+plot(y[2:length(y)], y[1:(length(y)-1)],
+     xlab = expression(Y[t-1]), ylab = expression(Y[t]),
+     main = expression("Scatterplot Y[t] vs Y[t-1]"),
+     pch = 19)
+plot(y[3:length(y)], y[1:(length(y)-2)],
+     xlab = expression(Y[t-2]), ylab = expression(Y[t]),
+     main = expression("Scatterplot Y[t] vs Y[t-2]"),
+     pch = 19)
+plot(y[4:length(y)], y[1:(length(y)-3)],
+     xlab = expression(Y[t-3]), ylab = expression(Y[t]),
+     main = expression("Scatterplot Y[t] vs Y[t-3]"),
+     pch = 19)
+```
+
+#### Hitung autokorelasi masing masing baik dari data bangkitan maupun secara teoritis
+
+```{r}
+phi1 <- 0.5
+phi2 <- 0.2
+L <- 20   
+
+# Teoritis
+phi1 <- 0.5; phi2 <- 0.2; L <- 20
+rho <- numeric(L+1)
+rho[1] <- 1
+rho[2] <- phi1 / (1 - phi2)                    
+rho[3] <- phi1 * rho[2] + phi2 * rho[1]         
+for (k in 3:L) {
+  rho[k+1] <- phi1 * rho[k] + phi2 * rho[k-1]   
+}
+acf_theory <- rho
+
+a1 <- acf(y_manual, lag.max = L, plot = FALSE, demean = TRUE)
+a2 <- acf(y_sim,    lag.max = L, plot = FALSE, demean = TRUE)
+
+v1 <- as.numeric(a1$acf)
+v2 <- as.numeric(a2$acf)
+K  <- min(length(v1), length(v2), L + 1)
+lag <- 0:(K-1)
+
+tab <- data.frame(
+  lag = lag,
+  theoretical = round(acf_theory[1:K], 3),
+  sample_manual = round(v1[1:K], 3),
+  sample_sim    = round(v2[1:K], 3)
+)
+
+kable(tab, caption = "Perbandingan ACF Teoritis vs Sampel AR(2)")
+```
+
+**ACF teoritis AR(2) (**phi1=0.5, phi2=0.2**):**
+
+rho(0) = 1
+
+rho(1) = 0.625
+
+rho(2) = 0.512
+
+rho(3) = 0.381
+
+rho(4) = 0.293
+
+dst. nilai autokorelasi **meluruh bertahap (tail-off)**, tidak terpotong.
+
+**ACF sampel (dari y_manual maupun y_sim)** mendekati nilai teoritis:
+
+-   Lag 1 dan 2 cukup besar dan positif.
+
+-   Lag berikutnya makin kecil dan berfluktuasi di sekitar 0.
+
+-   Perbedaan kecil muncul karena ukuran sampel terbatas (n=300), bahkan ada nilai negatif pada sampel meskipun teoritisnya positif.
+
+-   Sesuai teori, model AR(2) menghasilkan ACF yang **tail-off** dan **stasioner**. Pola ini konsisten dengan sifat AR(p): PACF terpotong di lag 2, sedangkan ACF meluruh secara bertahap.
+
+## Proses ARMA(2,2)
+
+#### Bangkitkan model ARMA(2,2) dengan 𝜃1 = 0.4, 𝜃2 = 0.6 , 𝜙1 = 0.5 dan 𝜙2 = 0.2 sebanyak 300 data (Manual dan arima.sim)
+
+```{r}
+set.seed(123)
+
+
+phi1 <- 0.5
+phi2 <- 0.2
+theta1 <- 0.4
+theta2 <- 0.6
+n <- 300
+
+# Manual
+wn <- rnorm(n, 0, 1)       
+y_manual <- numeric(n)     
+
+y_manual[1:2] <- wn[1:2]
+
+# ARMA(2,2): Yt = φ1 Yt-1 + φ2 Yt-2 + et + θ1 et-1 + θ2 et-2
+for (t in 3:n){
+  y_manual[t] <- phi1*y_manual[t-1] + phi2*y_manual[t-2] +
+                 wn[t] + theta1*wn[t-1] + theta2*wn[t-2]
+}
+
+# arima.sim
+y_sim <- arima.sim(n = n,
+                   model = list(ar = c(phi1, phi2),
+                                ma = c(theta1, theta2)),
+                   sd = 1)
+```
+
+#### Buat plot time series, plot ACF, plot PACF dan plot EACF. Idenifikasi apakah data tersebut stasioner
+
+```{r}
+y_ts <- ts(y_manual)
+plot.ts(y_ts, main="Plot Time Series ARMA(2,2)", ylab="Yt", xlab="t")
+acf(y_ts, main="ACF ARMA(2,2)")
+pacf(y_ts, main="PACF ARMA(2,2)")
+eacf(y_ts)
+```
+
+#### Buat scatterplot antara 𝑌𝑡 dengan 𝑌𝑡−1, 𝑌𝑡 dengan 𝑌𝑡−2 serta 𝑌𝑡 dengan 𝑌𝑡−3
+
+```{r}
+y <- as.numeric(y_manual)
+par(mfrow = c(1,3), mar = c(4,4,2,1))
+plot(y_manual[-1], y_manual[-length(y_manual)],
+     xlab=expression(Y[t-1]), ylab=expression(Y[t]),
+     main=expression("Scatterplot Y[t] vs Y[t-1]"),
+     pch=19)
+plot(y_manual[-c(1,2)], y_manual[1:(length(y_manual)-2)],
+     xlab=expression(Y[t-2]), ylab=expression(Y[t]),
+     main=expression("Scatterplot Y[t] vs Y[t-2]"),
+     pch=19)
+plot(y_manual[-c(1,2,3)], y_manual[1:(length(y_manual)-3)],
+     xlab=expression(Y[t-3]), ylab=expression(Y[t]),
+     main=expression("Scatterplot Y[t] vs Y[t-3]"),
+     pch=19)
+```
+
+#### Hitung autokorelasi masing masing baik dari data bangkitan maupun secara teoritis
+
+```{r}
+phi1 <- 0.5; phi2 <- 0.2; theta1 <- 0.4; theta2 <- 0.6; L <- 20
+M <- 100
+psi <- numeric(M)
+psi[1] <- 1
+psi[2] <- theta1 + phi1
+psi[3] <- theta2 + phi1*psi[2] + phi2*psi[1]
+for (j in 4:M){
+  psi[j] <- phi1*psi[j-1] + phi2*psi[j-2]
+}
+gamma <- numeric(L+1)
+for (k in 0:L){
+  gamma[k+1] <- sum(psi[1:(M-k)] * psi[(1+k):M])
+}
+rho_theory <- gamma / gamma[1]
+
+acf_manual <- as.numeric(acf(y_manual, lag.max=L, plot=FALSE)$acf)
+acf_sim    <- as.numeric(acf(y_sim,    lag.max=L, plot=FALSE)$acf)
+
+K <- min(length(acf_manual), length(acf_sim), L+1)
+lag <- 0:(K-1)
+
+tab <- data.frame(
+  lag = lag,
+  theoretical = round(rho_theory[1:K], 3),
+  sample_manual = round(acf_manual[1:K], 3),
+  sample_sim    = round(acf_sim[1:K], 3)
+)
+
+kable(tab, caption = "Perbandingan ACF Teoritis vs Sampel ARMA(2,2)")
+```
+
+**ACF teoritis ARMA(2,2) (**phi1 = 0.5, phi2 = 0.2, theta1 = 0.4, theta2 = 0.6**):**
+
+rho(0) = 1
+
+rho(1) = 0.859
+
+rho(2) = 0.749
+
+rho(3) = 0.546
+
+rho(4) = 0.423
+
+dst. nilai autokorelasi **meluruh bertahap (tail–off)**, tidak terpotong pada lag tertentu.
+
+**ACF sampel (dari y_manual maupun y_sim)** mendekati nilai teoritis:
+
+-   Lag 1 dan 2 cukup besar dan positif.
+
+-   Lag berikutnya makin kecil, namun ada fluktuasi di sekitar nol.
+
+-   Perbedaan kecil muncul karena jumlah data terbatas (n=300), sehingga ada nilai negatif meskipun teoritisnya tetap positif.
+
+-   Sesuai teori, model **ARMA(2,2)** menghasilkan ACF yang meluruh (tail–off) dan stasioner. Pola ini konsisten dengan sifat ARMA: baik ACF maupun PACF sama-sama tidak terpotong jelas, melainkan menurun secara bertahap.
