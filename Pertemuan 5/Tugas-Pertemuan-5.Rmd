@@ -1,0 +1,204 @@
+---
+title: "Tugas Pertemuan 5"
+author: "Fatih Avicenna Hizir"
+date: "2025-10-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Library
+
+```{r}
+library(tseries)
+library(tsibble)
+library(readxl)
+library(ggplot2)
+library(MASS)
+library(forecast)
+```
+
+## Import Data
+
+```{r}
+data_tsla <- read_excel("~/Downloads/TSLA_weekly.xlsx", sheet = "Weekly Data")
+
+data_tsla <- data_tsla[, c("Date", "Close")]
+
+head(data_tsla)
+```
+
+```{r}
+str(data_tsla)
+dim(data_tsla)
+data_tsla.ts<-ts(data_tsla$Close)
+summary(data_tsla.ts)
+
+#Partisi Data
+#Rata-Rata
+meants <- mean(data_tsla.ts)
+#Varians/Ragam
+varts <- var(data_tsla.ts)
+```
+
+## Cek Stationer dalam Rataan dan Ragam
+
+#### Plot Time Series
+
+```{r}
+plot_stas <- data_tsla.ts  |> as_tsibble() |> 
+  ggplot(aes(x = index, y = value)) + geom_line() + theme_bw() +
+  xlab("Obs") + ylab("Nilai")
+plot_stas
+```
+
+Plot deret waktu tersebut memperlihatkan bahwa data tidak bersifat stasioner pada rataan, yang tampak dari adanya pola tren yang berfluktuasi. Selain itu, data juga tidak stasioner dalam ragam, ditunjukkan oleh perbedaan lebar pita dari waktu ke waktu.
+
+#### Plot ACF
+
+```{r}
+acf(data_tsla.ts)
+```
+
+Jika ditinjau dari pola ACF, tampak bahwa autokorelasi mengalami penurunan secara lambat (Tail Off), sehingga dapat disimpulkan bahwa data belum mencapai kestasioneran pada rataannya.
+
+#### Uji ADF
+
+```{r}
+tseries::adf.test(data_tsla.ts)
+```
+
+𝐻0 : Data tidak stasioner dalam rataan
+
+𝐻1 : Data stasioner dalam rataan Hasil uji ADF menunjukkan nilai p sebesar 0.8991, yang melebihi taraf signifikansi 5%, sehingga keputusan yang diambil adalah gagal menolak 𝐻0 . Dengan demikian, data dapat dikatakan tidak stasioner pada rataan, sejalan dengan temuan dari plot deret waktu maupun plot ACF.
+
+#### Plot Box Cox
+
+```{r}
+indeks <- seq(2:199)
+bc = boxcox(data_tsla.ts~indeks, lambda = seq(-6,4,by=0.01), data=data_tsla.ts)
+```
+
+```{r}
+# Nilai lambda optimum
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+```
+
+-   Nilai optimum 𝜆 = **-0.19**
+
+-   CI 95% = **[-0.32, -0.06]**
+
+-   Karena seluruh selang berada jauh dari 1, maka dapat disimpulkan bahwa **data tidak stasioner dalam ragam**, sehingga transformasi Box–Cox memang diperlukan untuk menstabilkan varians.
+
+## Penanganan Tak Stationer
+
+#### Tranformasi Box Cox
+
+```{r}
+# ubah class biar lebih mudah
+x <- data_tsla.ts  
+
+# Cari lambda optimal 
+# Guerrero stabil buat data bersifat musiman/trend
+lambda <- BoxCox.lambda(x, method = "guerrero")
+lambda
+
+# Transformasi Box–Cox 
+xbc <- BoxCox(x, lambda)
+```
+
+Plot Perbandingan sebelum vs Sesudah
+
+```{r}
+op <- par(mfrow = c(2,1), mar = c(3,4,2,1))
+plot(x, type = "l",
+     main = "Data Asli ",
+     ylab = "Level", xlab = "")
+grid()
+plot(xbc, type = "l",
+     main = sprintf("Setelah Box–Cox (lambda = %.2f)", lambda),
+     ylab = "Level (BC)", xlab = "")
+grid()
+par(op)
+
+```
+
+Setelah transformasi Box–Cox (λ = 1.23), varians data menjadi lebih stabil dibandingkan data asli, sehingga lebih sesuai untuk analisis deret waktu.
+
+#### Differencing (1)
+
+```{r}
+xdiff1 <- diff(xbc, differences = 1) 
+
+plot.ts(xdiff1, lty=1, xlab="indeks", ylab="Close Difference 1", main="Plot Close Difference")
+```
+
+Deret hasil differencing pertama berfluktuasi di sekitar nol tanpa membentuk pola tren tertentu. Hal ini menunjukkan bahwa data sudah mencapai kestasioneran pada rataan.
+
+## Cek Lagi Stationer atau Tidak
+
+#### Plot ACF
+
+```{r}
+acf(xdiff1)
+```
+
+Dari plot ACF tampak bahwa pola autokorelasi tidak lagi menurun secara lambat, sehingga hal ini mengindikasikan bahwa data telah mencapai kestasioneran pada rataan.
+
+#### Uji ADF
+
+```{r}
+tseries::adf.test(xdiff1)
+```
+
+𝐻0 : Data tidak stasioner dalam rataan
+
+𝐻1 : Data stasioner dalam rataan
+
+Hasil uji ADF menunjukkan nilai p sebesar 0,01, yang lebih kecil dibandingkan taraf signifikansi 5%. Dengan demikian, 𝐻0 ditolak dan dapat disimpulkan bahwa data sudah stasioner pada rataan, sejalan dengan temuan dari plot deret waktu maupun ACF.
+
+#### Plot Box Cox
+
+```{r}
+index <- seq(1:length(xdiff1))
+
+# Uji Box-Cox
+bc <- boxcox(
+  xdiff1 - min(xdiff1) + 1 ~ index,
+  lambda = seq(-4, 6, by = 0.01)
+)
+```
+
+```{r}
+# Nilai lambda optimum
+lambda <- bc$x[which.max(bc$y)]
+lambda
+```
+
+```{r}
+# Selang kepercayaan 95% untuk lambda
+ci_lambda <- bc$x[bc$y > max(bc$y) - 0.5 * qchisq(0.95, 1)]
+
+# Batas bawah dan batas atas
+ci_lower <- min(ci_lambda)
+ci_upper <- max(ci_lambda)
+
+c(Batas_Bawah = ci_lower, Batas_Atas = ci_upper)
+
+```
+
+Dari hasil estimasi, diperoleh nilai 𝜆 optimum sekitar 1,23 dengan interval kepercayaan 95% antara -1,28 hingga 3,77. Karena rentang tersebut mencakup angka 1, maka dapat disimpulkan bahwa data sudah memenuhi asumsi kestasioneran dalam ragam.
